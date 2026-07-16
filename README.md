@@ -6,7 +6,7 @@
 
 直接打開 `index.html` 就會跑（純前端、沒有 backend、資料存在瀏覽器 localStorage）。
 
-如果想直接從 GitHub 試用，可以用 [GitHub Pages](https://ameow-cpu.github.io/schedule-assistant/) 開（如果有的話）。
+如果想直接從 GitHub 試用，可以用 [GitHub Pages](https://ameow-cpu.github.io/schedule-assistant/) 開。
 
 ## 功能
 
