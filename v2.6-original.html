@@ -1,0 +1,1261 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>大學雙主修/輔系 自動排課助手</title>
+    <!-- 引入 Tailwind CSS 用於精美且簡潔的 UI 設計 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome 圖標 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans TC", sans-serif;
+            background-color: #f8fafc;
+        }
+        /* 側邊欄隱藏滾動條 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        /* Modal 動畫 */
+        .modal-active { display: flex !important; }
+        
+        /* 自訂 Toast 動畫 */
+        @keyframes slideInUp {
+            from { transform: translate(-50%, 2rem); opacity: 0; }
+            to { transform: translate(-50%, 0); opacity: 1; }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+        .toast-show { animation: slideInUp 0.3s ease-out forwards; }
+        .toast-hide { animation: fadeOut 0.4s ease-in forwards; }
+
+        /* 側邊欄收放平滑動畫 */
+        .sidebar-transition { transition: width 0.3s ease-in-out, min-width 0.3s ease-in-out, background-color 0.3s ease-in-out; }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden">
+
+    <!-- 成功提示通知 (Toast Notification) -->
+    <div id="toast-notification" class="fixed bottom-8 left-1/2 -translate-x-1/2 bg-emerald-600 text-white font-semibold px-6 py-3.5 rounded-2xl shadow-xl z-50 hidden items-center space-x-2 text-sm border border-emerald-500">
+        <i class="fa-solid fa-circle-check text-base animate-bounce" id="toast-icon"></i>
+        <span id="toast-text">設定已成功儲存，儀表板已同步更新！</span>
+    </div>
+
+    <!-- 左側側邊欄導覽 (Sidebar) - 加入變換 class 的基底 -->
+    <div id="sidebar-container" class="w-64 text-slate-100 flex flex-col justify-between shadow-xl shrink-0 overflow-y-auto no-scrollbar sidebar-transition bg-slate-900">
+        <div>
+            <!-- 標題區與設定按鈕 -->
+            <div id="sidebar-header" class="p-6 flex items-center justify-between border-b border-slate-800 bg-slate-955">
+                <div class="flex items-center space-x-3 overflow-hidden">
+                    <i id="main-logo-icon" class="fa-solid fa-graduation-cap text-2xl theme-icon-color text-indigo-400"></i>
+                    <div class="truncate">
+                        <h1 class="font-bold text-md tracking-wide">自動排課助手</h1>
+                        <p class="text-xs text-slate-400" id="sidebar-subtitle">雙主修 / 輔系專用</p>
+                    </div>
+                </div>
+                <!-- 頂部設定圖示 -->
+                <button onclick="openSystemSettingsModal()" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors cursor-pointer shrink-0" title="系統與學制設定">
+                    <i class="fa-solid fa-gear text-lg"></i>
+                </button>
+            </div>
+            
+            <!-- 選項選單 -->
+            <nav class="mt-6 px-4 space-y-2">
+                <button onclick="switchTab('dashboard')" id="btn-dashboard" class="tab-btn w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all bg-indigo-600 text-white cursor-pointer theme-bg">
+                    <i class="fa-solid fa-chart-pie w-5 text-center"></i>
+                    <span>總覽</span>
+                </button>
+                <button onclick="switchTab('settings')" id="btn-settings" class="tab-btn w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-slate-400 hover:bg-white/10 hover:text-slate-100 cursor-pointer">
+                    <i class="fa-solid fa-sliders w-5 text-center"></i>
+                    <span>學分門檻設定</span>
+                </button>
+                <button onclick="switchTab('courses')" id="btn-courses" class="tab-btn w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-slate-400 hover:bg-white/10 hover:text-slate-100 cursor-pointer">
+                    <i class="fa-solid fa-list-check w-5 text-center"></i>
+                    <span>預計修課清單</span>
+                </button>
+                <button onclick="switchTab('timetable')" id="btn-timetable" class="tab-btn w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-slate-400 hover:bg-white/10 hover:text-slate-100 cursor-pointer">
+                    <i class="fa-solid fa-calendar-days w-5 text-center"></i>
+                    <span>跨學期課表</span>
+                </button>
+            </nav>
+        </div>
+        
+        <div id="sidebar-footer" class="p-4 text-center text-xs text-slate-500 bg-slate-955">
+            大排檔 v2.6
+        </div>
+    </div>
+
+    <!-- 右側主內容區 -->
+    <div class="flex-1 flex flex-col overflow-y-auto no-scrollbar">
+        <header class="bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center shrink-0">
+            <!-- 三條橫線圖示切換按鈕 -->
+            <div class="flex items-center space-x-4">
+                <button onclick="toggleSidebar()" class="text-slate-600 hover:text-slate-900 p-2 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer" title="收折/展開側邊欄">
+                    <i class="fa-solid fa-bars text-lg"></i>
+                </button>
+                <h2 id="page-title" class="text-xl font-bold text-slate-800">儀表板總覽</h2>
+            </div>
+            <div class="flex items-center space-x-2 text-xs text-slate-500">
+                <span class="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full font-semibold border border-emerald-200">本機離線編譯儲存</span>
+            </div>
+        </header>
+
+        <main class="p-8 flex-1">
+            <!-- 1. 儀表板總覽分頁 -->
+            <div id="tab-dashboard" class="tab-content space-y-8">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="bg-white p-6 rounded-2xl shadow-xs border border-slate-200">
+                        <p class="text-sm font-medium text-slate-500" id="dash-threshold-label">總學分門檻 (自動加總)</p>
+                        <p class="text-3xl font-bold text-slate-800 mt-2" id="card-total-threshold">0 <span class="text-sm font-normal text-slate-400">學分</span></p>
+                    </div>
+                    <div class="bg-white p-6 rounded-2xl shadow-xs border border-slate-200">
+                        <p class="text-sm font-medium text-slate-500">目前已修得學分</p>
+                        <p class="text-3xl font-bold text-emerald-600 mt-2" id="card-current-passed">0 <span class="text-sm font-normal text-slate-400">學分</span></p>
+                    </div>
+                    <div class="bg-white p-6 rounded-2xl shadow-xs border border-slate-200">
+                        <p class="text-sm font-medium text-slate-500">預計修完想修的課後</p>
+                        <p class="text-3xl font-bold text-indigo-600 mt-2 theme-text" id="card-after-planned">還差 0 <span class="text-sm font-normal text-slate-400">學分</span></p>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-2xl shadow-xs border border-slate-200">
+                    <h3 class="text-lg font-bold text-slate-800 mb-6 flex items-center">
+                        <i class="fa-solid fa-bars-progress text-indigo-500 mr-2 theme-text"></i> 各類別學分/學期 差額追蹤
+                    </h3>
+                    <div class="space-y-6" id="progress-container"></div>
+                </div>
+            </div>
+
+            <!-- 2. 學分門檻設定分頁 -->
+            <div id="tab-settings" class="tab-content hidden space-y-6">
+                <div class="bg-white p-6 rounded-2xl shadow-xs border border-slate-200 max-w-3xl">
+                    <div class="flex items-center space-x-2 border-b border-slate-100 pb-4 mb-6">
+                        <i class="fa-solid fa-graduation-cap text-slate-600 text-lg"></i>
+                        <h3 class="text-lg font-bold text-slate-800">設定你的畢業學分門檻與已修學分</h3>
+                    </div>
+                    <div class="grid grid-cols-3 gap-4 font-semibold text-sm text-slate-700 mb-3 bg-slate-50 p-3 rounded-lg">
+                        <div>項目類別</div>
+                        <div>畢業門檻要求</div>
+                        <div>我現在已修過/通過</div>
+                    </div>
+                    <div id="settings-inputs-form" class="space-y-4"></div>
+                    <div class="mt-6 pt-4 border-t border-slate-100 flex justify-between items-center">
+                        <p class="text-xs text-slate-400">提示：請修改數值後點擊「儲存變更」，數值方會套用與更新。</p>
+                        <button onclick="saveCreditsData()" class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:opacity-90 shadow-sm transition-all duration-200 cursor-pointer theme-bg">
+                            <i class="fa-solid fa-floppy-disk mr-1.5"></i> 儲存變更
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. 預計修課清單分頁 -->
+            <div id="tab-courses" class="tab-content hidden space-y-6">
+                <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-xs border border-slate-200">
+                    <button onclick="openAddCourseModal()" class="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:opacity-90 transition-all flex items-center space-x-1 cursor-pointer shadow-xs theme-bg">
+                        <i class="fa-solid fa-plus text-xs"></i>
+                        <span>新增預計修課</span>
+                    </button>
+                    <button onclick="runAutoScheduleAndRedirect()" class="px-5 py-2 bg-amber-500 text-slate-900 rounded-xl text-sm font-bold hover:bg-amber-400 transition-all flex items-center space-x-2 cursor-pointer shadow-xs">
+                        <i class="fa-solid fa-bolt-lightning text-slate-900 animate-bounce"></i>
+                        <span>生成修課計畫</span>
+                    </button>
+                </div>
+
+                <div id="conflict-alert" class="hidden bg-rose-50 border border-rose-200 rounded-xl p-4 text-rose-800 text-sm flex items-start space-x-2">
+                    <i class="fa-solid fa-circle-exclamation mt-0.5 text-lg text-rose-600"></i>
+                    <div>
+                        <span class="font-bold">排課衝堂或擋修開課學期衝突警告：</span>
+                        <ul id="conflict-list" class="list-disc list-inside mt-1 space-y-1 text-rose-700 font-mono"></ul>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse min-w-[800px]">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-xs uppercase tracking-wider">
+                                    <th class="p-4">優先類別</th>
+                                    <th class="p-4">課程名稱</th>
+                                    <th class="p-4">手動優先序</th>
+                                    <th class="p-4">學分/限制</th>
+                                    <th class="p-4">先修科目限制(擋修)</th>
+                                    <th class="p-4">上課時間</th>
+                                    <th class="p-4 text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="course-table-body" class="divide-y divide-slate-100 text-sm text-slate-700"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. 跨學期課表分頁 -->
+            <div id="tab-timetable" class="tab-content hidden space-y-6">
+                <div class="flex space-x-2 border-b border-slate-200 pb-2 mb-4 shrink-0" id="timetable-subtabs">
+                    <button onclick="switchTimetableSubTab('roadmap')" id="sub-btn-roadmap" class="px-4 py-2 text-sm font-semibold border-b-2 border-indigo-600 text-indigo-600 focus:outline-none cursor-pointer theme-text theme-border">
+                        <i class="fa-solid fa-rectangle-list mr-1"></i>學期修課一覽
+                    </button>
+                    <button onclick="switchTimetableSubTab('grid')" id="sub-btn-grid" class="px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-800 border-b-2 border-transparent focus:outline-none cursor-pointer">
+                        <i class="fa-solid fa-table-cells mr-1"></i>每學期課表
+                    </button>
+                </div>
+
+                <div id="sub-tab-roadmap" class="space-y-4">
+                    <h3 class="text-md font-bold text-slate-800 flex items-center" id="timetable-cards-header">
+                        <i class="fa-solid fa-rectangle-list text-indigo-500 mr-2 theme-text"></i> 四學期修課分布長征圖
+                    </h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4" id="semester-cards-container"></div>
+                </div>
+
+                <div id="sub-tab-grid" class="hidden space-y-4">
+                    <div class="bg-white p-6 rounded-2xl shadow-xs border border-slate-200">
+                        <div class="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+                            <h3 class="text-md font-bold text-slate-800 flex items-center">
+                                <i class="fa-solid fa-table-cells text-emerald-500 mr-2"></i> 單一學期功課表網格 (純節次)
+                            </h3>
+                            <div class="flex items-center space-x-2">
+                                <label class="text-xs text-slate-500 font-medium">切換檢視學期：</label>
+                                <select id="timetable-semester-select" onchange="renderWeeklyGrid()" class="text-xs bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"></select>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full border-collapse border border-slate-200 table-fixed min-w-[700px]">
+                                <thead>
+                                    <tr class="bg-slate-100 text-slate-700 font-semibold text-xs text-center border-b border-slate-200">
+                                        <th class="p-2 border border-slate-200 w-24">節次</th>
+                                        <th class="p-2 border border-slate-200">星期一</th>
+                                        <th class="p-2 border border-slate-200">星期二</th>
+                                        <th class="p-2 border border-slate-200">星期三</th>
+                                        <th class="p-2 border border-slate-200">星期四</th>
+                                        <th class="p-2 border border-slate-200">星期五</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="weekly-grid-body" class="text-xs text-center"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 彈出式系統與學制設定視窗 (Modal) -->
+    <div id="system-settings-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs justify-center items-center z-50 hidden transition-all">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-xl border border-slate-200 overflow-hidden transform scale-95 transition-transform p-6 space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3 shrink-0">
+                <h3 class="text-lg font-bold text-slate-800 flex items-center">
+                    <i class="fa-solid fa-gear text-indigo-600 mr-2 theme-text"></i> <span>系統學制與主題設定</span>
+                </h3>
+                <button onclick="closeSystemSettingsModal()" class="text-slate-400 hover:text-slate-600 cursor-pointer">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            
+            <!-- 表單欄位 -->
+            <div class="space-y-4 text-sm">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">目前年級</label>
+                    <select id="sidebar-grade" onchange="handleSidebarFilterChange()" class="w-full bg-slate-50 border border-slate-300 text-slate-800 rounded-lg p-2 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer font-medium">
+                        <option value="一年級">一年級</option>
+                        <option value="二年級">二年級</option>
+                        <option value="三年級" selected>三年級</option>
+                        <option value="四年級">四年級</option>
+                        <option value="五年級">五年級</option>
+                        <option value="六年級">六年級</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">目前學期</label>
+                    <select id="sidebar-current-sem" onchange="handleSidebarFilterChange()" class="w-full bg-slate-50 border border-slate-300 text-slate-800 rounded-lg p-2 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer font-medium">
+                        <option value="上學期" selected>上學期</option>
+                        <option value="下學期">下學期</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">目標畢業年級</label>
+                    <select id="sidebar-target-grade" onchange="handleSidebarFilterChange()" class="w-full bg-slate-50 border border-slate-300 text-slate-800 rounded-lg p-2 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer font-medium">
+                        <option value="一年級">一年級</option>
+                        <option value="二年級">二年級</option>
+                        <option value="三年級">三年級</option>
+                        <option value="四年級" selected>四年級</option>
+                        <option value="五年級">五年級</option>
+                        <option value="六年級">六年級</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">修別配置</label>
+                    <select id="sidebar-type" onchange="handleSidebarFilterChange()" class="w-full bg-slate-50 border border-slate-300 text-slate-800 rounded-lg p-2 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer font-medium">
+                        <option value="雙主修" selected>雙主修</option>
+                        <option value="輔系">輔系</option>
+                        <option value="主修">主修</option>
+                    </select>
+                </div>
+
+                <!-- 改進功能：系統主題色切換改為純色圓形圖示 -->
+                <div class="pt-2 border-t border-slate-100">
+                    <label class="block text-xs font-semibold text-slate-600 mb-2">系統主題色切換</label>
+                    <div class="flex items-center space-x-3 py-1">
+                        <button onclick="changeSystemTheme('indigo')" class="w-7 h-7 rounded-full bg-indigo-600 border-2 border-transparent hover:scale-110 transition-transform cursor-pointer focus:outline-none theme-dot" id="theme-dot-indigo" title="靛藍經典"></button>
+                        <button onclick="changeSystemTheme('emerald')" class="w-7 h-7 rounded-full bg-emerald-600 border-2 border-transparent hover:scale-110 transition-transform cursor-pointer focus:outline-none theme-dot" id="theme-dot-emerald" title="翡翠清新"></button>
+                        <button onclick="changeSystemTheme('amber')" class="w-7 h-7 rounded-full bg-amber-500 border-2 border-transparent hover:scale-110 transition-transform cursor-pointer focus:outline-none theme-dot" id="theme-dot-amber" title="琥珀活潑"></button>
+                        <button onclick="changeSystemTheme('rose')" class="w-7 h-7 rounded-full bg-rose-600 border-2 border-transparent hover:scale-110 transition-transform cursor-pointer focus:outline-none theme-dot" id="theme-dot-rose" title="玫瑰時尚"></button>
+                        <button onclick="changeSystemTheme('slate')" class="w-7 h-7 rounded-full bg-slate-700 border-2 border-transparent hover:scale-110 transition-transform cursor-pointer focus:outline-none theme-dot" id="theme-dot-slate" title="低調石板"></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 按鈕區 -->
+            <div class="pt-3 border-t border-slate-100 flex justify-end shrink-0">
+                <button onclick="closeSystemSettingsModal()" class="px-5 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:opacity-90 transition-all cursor-pointer shadow-xs theme-bg">
+                    關閉設定
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 彈出式新增/編輯課程視窗 (Modal) -->
+    <div id="add-course-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs justify-center items-center z-50 hidden transition-all">
+        <div class="bg-white w-full max-w-lg rounded-2xl shadow-xl border border-slate-200 overflow-hidden transform scale-95 transition-transform p-6 space-y-4 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3 shrink-0">
+                <h3 class="text-lg font-bold text-slate-800 flex items-center">
+                    <i class="fa-solid fa-square-plus text-indigo-600 mr-2 theme-text" id="modal-icon"></i> <span id="modal-title">新增計畫修課</span>
+                </h3>
+                <button onclick="closeAddCourseModal()" class="text-slate-400 hover:text-slate-600 cursor-pointer">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            
+            <!-- 表單欄位 -->
+            <div class="space-y-4 text-sm overflow-y-auto no-scrollbar pr-1 flex-1">
+                <div id="modal-error-block" class="hidden p-3 bg-rose-50 text-rose-700 rounded-lg text-xs font-semibold border border-rose-200">
+                    請輸入課程名稱並確保至少設定一組上課時段！
+                </div>
+
+                <input type="hidden" id="modal-course-id" value="">
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">課程名稱</label>
+                    <input type="text" id="modal-course-name" placeholder="例如：資料結構、總體經濟學" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1" id="modal-cat-label">課程類別</label>
+                        <select id="modal-course-cat" onchange="handleModalCategoryChange()" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer">
+                            <option value="major1">原系必修 (預設最優先)</option>
+                            <option value="major2">雙主修/輔系學分 (預設次優先)</option>
+                            <option value="general">通識學分</option>
+                            <option value="chinese">國文課</option>
+                            <option value="english">英文課</option>
+                            <option value="elective">選修課</option>
+                            <option value="sports">體育課 (0學分)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1" id="modal-credit-label">學分數</label>
+                        <input type="number" id="modal-course-credit" min="0" max="6" value="3" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">開課學期限制</label>
+                        <select id="modal-course-sem-rule" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer">
+                            <option value="both">上下學期皆有開課 (皆可排)</option>
+                            <option value="1">僅在上學期開課</option>
+                            <option value="2">僅在下學期開課</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">自訂排課優先順序 (彈性手動)</label>
+                        <select id="modal-course-priority" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer">
+                            <option value="default" selected>預設優先順序 (依科目類別)</option>
+                            <option value="1">1 (極高優先，等同原系必修)</option>
+                            <option value="2">2 (高優先，等同雙輔必修)</option>
+                            <option value="3">3 (中優先)</option>
+                            <option value="4">4 (低優先)</option>
+                            <option value="5">5 (極低優先)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">期望修課學期 (優先嘗試安排)</label>
+                        <select id="modal-course-preferred-sem" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer">
+                            <option value="">不限學期 (自動尋找最合適學期)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">先修科目限制 (擋修/前置)</label>
+                        <select id="modal-course-prereq" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer">
+                            <option value="">無先修限制 (不限擋修)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 時間文字顯示與觸發鈕 -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1.5">上課時間設定</label>
+                    <div class="flex items-center space-x-2">
+                        <button type="button" onclick="openSelectorGridModal()" class="px-3 py-2 border rounded-lg text-xs font-medium transition-colors flex items-center space-x-1 cursor-pointer theme-text-pure theme-border theme-light-bg">
+                            <i class="fa-solid fa-calendar-week"></i>
+                            <span>點擊彈出簡易課表選擇時段</span>
+                        </button>
+                        <span id="modal-slots-preview" class="text-xs text-slate-500 font-medium font-mono truncate flex-1">尚未選擇時段</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 按鈕區 -->
+            <div class="pt-3 border-t border-slate-100 flex justify-end space-x-2 shrink-0">
+                <button onclick="closeAddCourseModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-medium rounded-lg hover:bg-slate-200 cursor-pointer">取消</button>
+                <button onclick="submitAddCourse()" id="modal-submit-btn" class="px-4 py-2 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:opacity-90 cursor-pointer theme-bg">確認加入清單</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 內層：選擇時段課表微觀網格 (Time Selector Modal) -->
+    <div id="selector-grid-modal" class="fixed inset-0 bg-slate-955/40 backdrop-blur-xs justify-center items-center z-50 hidden transition-all">
+        <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3 shrink-0">
+                <h4 class="text-md font-bold text-slate-800 flex items-center">
+                    <i class="fa-solid fa-table-cells text-indigo-600 mr-2 theme-text"></i> 點擊網格選擇上課時段 (可多選)
+                </h4>
+                <p class="text-xs text-slate-400">點擊任意格以選取/取消，可一次安排多節次</p>
+            </div>
+            
+            <div class="overflow-y-auto no-scrollbar flex-1 border border-slate-100 rounded-xl overflow-hidden">
+                <table class="w-full border-collapse border border-slate-200 table-fixed min-w-[500px]">
+                    <thead>
+                        <tr class="bg-slate-50 text-slate-700 font-semibold text-xs text-center border-b border-slate-200">
+                            <th class="p-2 border border-slate-200 w-20">節次</th>
+                            <th class="p-2 border border-slate-200">週一</th>
+                            <th class="p-2 border border-slate-200">週二</th>
+                            <th class="p-2 border border-slate-200">週三</th>
+                            <th class="p-2 border border-slate-200">週四</th>
+                            <th class="p-2 border border-slate-200">週五</th>
+                        </tr>
+                    </thead>
+                    <tbody id="selector-grid-body" class="text-xs text-center"></tbody>
+                </table>
+            </div>
+
+            <div class="pt-3 border-t border-slate-100 flex justify-end space-x-2 shrink-0">
+                <button onclick="closeSelectorGridModal()" class="px-5 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:opacity-90 transition-all cursor-pointer shadow-xs theme-bg">
+                    完成選擇
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const CATEGORIES = {
+            major1: { name: '原系必修', unit: '學分', color: 'bg-indigo-600', text: 'text-indigo-600' },
+            major2: { name: '雙主修/輔系學分', unit: '學分', color: 'bg-sky-600', text: 'text-sky-600' },
+            general: { name: '通識學分', unit: '學分', color: 'bg-amber-600', text: 'text-amber-600' },
+            chinese: { name: '國文課', unit: '學分', color: 'bg-red-600', text: 'text-red-600' },
+            english: { name: '英文課', unit: '學分', color: 'bg-blue-600', text: 'text-blue-600' },
+            elective: { name: '選修課', unit: '學分', color: 'bg-teal-600', text: 'text-teal-600' },
+            sports: { name: '體育課', unit: '學期', color: 'bg-emerald-600', text: 'text-emerald-600' }
+        };
+
+        // 擴充功能：增加了左側欄配色的專屬色彩映射表
+        const THEME_STYLES = {
+            indigo: { 
+                bg: 'bg-indigo-600', text: 'text-indigo-600', border: 'border-indigo-600', icon: 'text-indigo-400', pureText: 'text-indigo-600', lightBg: 'bg-indigo-50', borderPure: 'border-indigo-200',
+                sidebarBg: 'bg-indigo-950', sidebarHeader: 'bg-indigo-950', sidebarBorder: 'border-indigo-900'
+            },
+            emerald: { 
+                bg: 'bg-emerald-600', text: 'text-emerald-600', border: 'border-emerald-600', icon: 'text-emerald-400', pureText: 'text-emerald-600', lightBg: 'bg-emerald-50', borderPure: 'border-emerald-200',
+                sidebarBg: 'bg-teal-950', sidebarHeader: 'bg-teal-955', sidebarBorder: 'border-teal-900'
+            },
+            amber: { 
+                bg: 'bg-amber-500', text: 'text-amber-500', border: 'border-amber-500', icon: 'text-amber-400', pureText: 'text-amber-600', lightBg: 'bg-amber-50', borderPure: 'border-amber-200',
+                sidebarBg: 'bg-slate-900', sidebarHeader: 'bg-slate-950', sidebarBorder: 'border-slate-850'
+            },
+            rose: { 
+                bg: 'bg-rose-600', text: 'text-rose-600', border: 'border-rose-600', icon: 'text-rose-400', pureText: 'text-rose-600', lightBg: 'bg-rose-50', borderPure: 'border-rose-200',
+                sidebarBg: 'bg-rose-950', sidebarHeader: 'bg-rose-955', sidebarBorder: 'border-rose-900'
+            },
+            slate: { 
+                bg: 'bg-slate-700', text: 'text-slate-700', border: 'border-slate-700', icon: 'text-slate-400', pureText: 'text-slate-700', lightBg: 'bg-slate-100', borderPure: 'border-slate-300',
+                sidebarBg: 'bg-slate-800', sidebarHeader: 'bg-slate-850', sidebarBorder: 'border-slate-750'
+            }
+        };
+
+        let currentTheme = 'indigo';
+
+        let creditData = {
+            major1: { req: 50, passed: 30 },
+            major2: { req: 30, passed: 6 },
+            general: { req: 20, passed: 12 },
+            chinese: { req: 4, passed: 4 },
+            english: { req: 4, passed: 2 },
+            elective: { req: 20, passed: 10 },
+            sports: { req: 4, passed: 2 }
+        };
+
+        let tempCreditData = {};
+
+        let courseList = [
+            { id: 1, name: "作業系統 (原系必修範例)", cat: "major1", credit: 3, semRule: "1", slots: [{ day: 1, period: 1 }, { day: 1, period: 2 }], priority: "default", prereqId: "", preferredSemId: "" },
+            { id: 2, name: "軟體工程 (原系必修範例)", cat: "major1", credit: 3, semRule: "2", slots: [{ day: 3, period: 5 }, { day: 3, period: 6 }], priority: "default", prereqId: "1", preferredSemId: "" },
+            { id: 3, name: "個體經濟學 (雙主修範例)", cat: "major2", credit: 3, semRule: "1", slots: [{ day: 1, period: 1 }], priority: "default", prereqId: "", preferredSemId: "" }, 
+            { id: 4, name: "台灣歷史與文化", cat: "general", credit: 2, semRule: "both", slots: [{ day: 4, period: 3 }, { day: 4, period: 4 }], priority: "default", prereqId: "", preferredSemId: "" },
+            { id: 5, name: "進階英文寫作", cat: "english", credit: 2, semRule: "both", slots: [{ day: 2, period: 7 }], priority: "default", prereqId: "", preferredSemId: "4" },
+            { id: 6, name: "大專網球", cat: "sports", credit: 0, semRule: "both", slots: [{ day: 5, period: 3 }, { day: 5, period: 4 }], priority: "default", prereqId: "", preferredSemId: "" }
+        ];
+
+        let selectedSlotsCache = [];
+        let scheduleResult = {};
+        let scheduleConflicts = [];
+        let failedCoursesList = [];
+        let activeTab = 'dashboard';
+
+        window.onload = function() {
+            if (localStorage.getItem('course_assistant_credits')) {
+                creditData = JSON.parse(localStorage.getItem('course_assistant_credits'));
+            }
+            if (localStorage.getItem('course_assistant_courses')) {
+                courseList = JSON.parse(localStorage.getItem('course_assistant_courses'));
+                courseList = courseList.map(c => {
+                    if (!c.slots) c.slots = [];
+                    if (c.priority === undefined) c.priority = "default";
+                    if (c.prereqId === undefined) c.prereqId = "";
+                    if (c.preferredSemId === undefined) c.preferredSemId = "";
+                    return c;
+                });
+            }
+            if (localStorage.getItem('course_assistant_theme')) {
+                currentTheme = localStorage.getItem('course_assistant_theme');
+            }
+
+            tempCreditData = JSON.parse(JSON.stringify(creditData));
+
+            if (localStorage.getItem('course_assistant_grade')) document.getElementById('sidebar-grade').value = localStorage.getItem('course_assistant_grade');
+            if (localStorage.getItem('course_assistant_current_sem')) document.getElementById('sidebar-current-sem').value = localStorage.getItem('course_assistant_current_sem');
+            if (localStorage.getItem('course_assistant_target_grade')) document.getElementById('sidebar-target-grade').value = localStorage.getItem('course_assistant_target_grade');
+            if (localStorage.getItem('course_assistant_type')) document.getElementById('sidebar-type').value = localStorage.getItem('course_assistant_type');
+
+            syncSidebarTypeToCategory();
+            renderSettingsForm();
+            calculateAllMetrics();
+            renderCourseTable();
+            runAutoSchedule();
+            applyThemeColors();
+            switchTab('dashboard');
+        };
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar-container');
+            if (sidebar.classList.contains('w-64')) {
+                sidebar.classList.remove('w-64');
+                sidebar.classList.add('w-0', 'min-w-0');
+            } else {
+                sidebar.classList.remove('w-0', 'min-w-0');
+                sidebar.classList.add('w-64');
+            }
+        }
+
+        function openSystemSettingsModal() {
+            document.getElementById('system-settings-modal').classList.add('modal-active');
+        }
+        function closeSystemSettingsModal() {
+            document.getElementById('system-settings-modal').classList.remove('modal-active');
+        }
+
+        // 改進功能：接受傳入的配色字串作為新主題
+        function changeSystemTheme(themeName) {
+            currentTheme = themeName;
+            localStorage.setItem('course_assistant_theme', currentTheme);
+            applyThemeColors();
+        }
+
+        // 功能 1 & 改進擴充：智慧型主題渲染功能，連動左側側邊欄配色
+        function applyThemeColors() {
+            const t = THEME_STYLES[currentTheme] || THEME_STYLES.indigo;
+            
+            // 1. 更新設定彈出視窗內圓形色彩圓點的選取狀態樣式
+            document.querySelectorAll('.theme-dot').forEach(el => {
+                el.classList.remove('ring-4', 'ring-offset-2', 'ring-slate-400', 'scale-110');
+            });
+            const activeDot = document.getElementById(`theme-dot-${currentTheme}`);
+            if (activeDot) {
+                activeDot.classList.add('ring-4', 'ring-offset-2', 'ring-slate-400', 'scale-110');
+            }
+
+            // 2. 左側欄位色隨主題即時變換聯動
+            const sidebarContainer = document.getElementById('sidebar-container');
+            const sidebarHeader = document.getElementById('sidebar-header');
+            const sidebarFooter = document.getElementById('sidebar-footer');
+
+            // 清理舊的側邊欄 bg/border class 後重新注入
+            sidebarContainer.className = sidebarContainer.className.replace(/bg-(indigo|teal|slate|rose)-\d+/g, t.sidebarBg);
+            sidebarHeader.className = sidebarHeader.className.replace(/bg-(indigo|teal|slate|rose)-\d+/g, t.sidebarHeader);
+            sidebarHeader.className = sidebarHeader.className.replace(/border-(indigo|teal|slate|rose)-\d+/g, t.sidebarBorder);
+            sidebarFooter.className = sidebarFooter.className.replace(/bg-(indigo|teal|slate|rose)-\d+/g, t.sidebarHeader);
+
+            // 3. 處理主要背景色按鈕與圖示
+            document.querySelectorAll('.theme-bg').forEach(el => {
+                el.className = el.className.replace(/bg-(indigo|emerald|amber|rose|slate)-\d+/g, t.bg);
+            });
+            document.querySelectorAll('.theme-text').forEach(el => {
+                el.className = el.className.replace(/text-(indigo|emerald|amber|rose|slate)-\d+/g, t.text);
+            });
+            const logoIcon = document.getElementById('main-logo-icon');
+            if (logoIcon) {
+                logoIcon.className = logoIcon.className.replace(/text-(indigo|emerald|amber|rose|slate)-\d+/g, t.icon);
+            }
+            
+            switchTab(activeTab);
+        }
+
+        function handleSidebarFilterChange() {
+            const grade = document.getElementById('sidebar-grade').value;
+            const currentSem = document.getElementById('sidebar-current-sem').value;
+            let targetGrade = document.getElementById('sidebar-target-grade').value;
+            const type = document.getElementById('sidebar-type').value;
+            
+            const grades = ["一年級", "二年級", "三年級", "四年級", "五年級", "六年級"];
+            if (grades.indexOf(targetGrade) < grades.indexOf(grade)) {
+                document.getElementById('sidebar-target-grade').value = grade;
+                targetGrade = grade;
+            }
+
+            localStorage.setItem('course_assistant_grade', grade);
+            localStorage.setItem('course_assistant_current_sem', currentSem);
+            localStorage.setItem('course_assistant_target_grade', targetGrade);
+            localStorage.setItem('course_assistant_type', type);
+
+            syncSidebarTypeToCategory();
+            renderSettingsForm();
+            calculateAllMetrics();
+            renderCourseTable();
+            runAutoSchedule();
+            
+            document.getElementById('timetable-cards-header').innerHTML = `<i class="fa-solid fa-rectangle-list text-indigo-500 mr-2 theme-text"></i> ${grade}${currentSem} 起至畢業 - 修課分布長征圖`;
+            applyThemeColors();
+        }
+
+        function syncSidebarTypeToCategory() {
+            const typeVal = document.getElementById('sidebar-type').value;
+            CATEGORIES.major2.name = `${typeVal}學分`;
+            if (document.querySelector("#modal-course-cat option[value='major2']")) {
+                document.querySelector("#modal-course-cat option[value='major2']").innerText = `${typeVal}學分`;
+            }
+            document.getElementById('sidebar-subtitle').innerText = `${typeVal} / 規劃助手`;
+        }
+
+        function getSemestersSequence() {
+            const grades = ["一年級", "二年級", "三年級", "四年級", "五年級", "六年級"];
+            const currentGrade = document.getElementById('sidebar-grade').value;
+            const currentSem = document.getElementById('sidebar-current-sem').value;
+            const targetGrade = document.getElementById('sidebar-target-grade').value;
+
+            let startG = grades.indexOf(currentGrade) === -1 ? 2 : grades.indexOf(currentGrade);
+            let endG = grades.indexOf(targetGrade) === -1 || grades.indexOf(targetGrade) < startG ? startG : grades.indexOf(targetGrade);
+
+            let semesters = [], index = 1, currentS = (currentSem === "上學期") ? 1 : 2;
+            for (let g = startG; g <= endG; g++) {
+                let sStart = (g === startG) ? currentS : 1;
+                for (let s = sStart; s <= 2; s++) {
+                    semesters.push({ id: index, gradeName: grades[g], semName: s === 1 ? "上學期" : "下學期", label: `${grades[g]} ${s === 1 ? "上學期" : "下學期"}`, isOdd: s === 1 });
+                    index++;
+                }
+            }
+            return semesters;
+        }
+
+        function updateSemesterSelectOptions(semesters) {
+            const select = document.getElementById('timetable-semester-select');
+            const prevVal = select.value;
+            select.innerHTML = '';
+            semesters.forEach(sem => {
+                const opt = document.createElement('option');
+                opt.value = sem.id; opt.text = sem.label; select.appendChild(opt);
+            });
+            if (semesters.some(s => s.id == prevVal)) select.value = prevVal;
+            else if (semesters.length > 0) select.value = sems[0].id;
+        }
+
+        function switchTab(tabId) {
+            activeTab = tabId;
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById('tab-' + tabId).classList.remove('hidden');
+            
+            const t = THEME_STYLES[currentTheme] || THEME_STYLES.indigo;
+
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.className = "tab-btn w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-slate-400 hover:bg-white/10 hover:text-slate-100 cursor-pointer";
+            });
+            
+            document.getElementById('btn-' + tabId).className = `tab-btn w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${t.bg} text-white cursor-pointer theme-bg`;
+
+            const grade = document.getElementById('sidebar-grade').value;
+            const currentSem = document.getElementById('sidebar-current-sem').value;
+            const type = document.getElementById('sidebar-type').value;
+            
+            const titles = { dashboard: `${grade}${currentSem} - ${type} 總覽`, settings: "學分門檻設定", courses: "預計修課清單", timetable: `畢業課表整體規劃` };
+            document.getElementById('page-title').innerText = titles[tabId];
+
+            if (tabId === 'dashboard') calculateAllMetrics();
+            if (tabId === 'settings') {
+                tempCreditData = JSON.parse(JSON.stringify(creditData));
+                renderSettingsForm();
+            }
+            if (tabId === 'timetable') switchTimetableSubTab('roadmap');
+        }
+
+        function switchTimetableSubTab(viewMode) {
+            const sems = getSemestersSequence();
+            updateSemesterSelectOptions(sems);
+            const t = THEME_STYLES[currentTheme] || THEME_STYLES.indigo;
+
+            if (viewMode === 'roadmap') {
+                document.getElementById('sub-tab-roadmap').classList.remove('hidden');
+                document.getElementById('sub-tab-grid').classList.add('hidden');
+                document.getElementById('sub-btn-roadmap').className = `px-4 py-2 text-sm font-semibold border-b-2 ${t.border} ${t.text} focus:outline-none cursor-pointer theme-text theme-border`;
+                document.getElementById('sub-btn-grid').className = "px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-800 border-b-2 border-transparent focus:outline-none cursor-pointer";
+                renderSemesterCards();
+            } else {
+                document.getElementById('sub-tab-roadmap').classList.add('hidden');
+                document.getElementById('sub-tab-grid').classList.remove('hidden');
+                document.getElementById('sub-btn-roadmap').className = "px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-800 border-b-2 border-transparent focus:outline-none cursor-pointer";
+                document.getElementById('sub-btn-grid').className = `px-4 py-2 text-sm font-semibold border-b-2 ${t.border} ${t.text} focus:outline-none cursor-pointer theme-text theme-border`;
+                renderWeeklyGrid();
+            }
+        }
+
+        function renderSettingsForm() {
+            const container = document.getElementById('settings-inputs-form');
+            container.innerHTML = '';
+            Object.keys(CATEGORIES).forEach(key => {
+                const cat = CATEGORIES[key];
+                const data = tempCreditData[key] || { req: 0, passed: 0 };
+                const row = document.createElement('div');
+                row.className = "grid grid-cols-3 gap-4 items-center";
+                row.innerHTML = `
+                    <div class="text-sm font-medium text-slate-700 flex items-center">
+                        <span class="w-2 h-2 rounded-full ${cat.color} mr-2"></span>
+                        ${cat.name} <span class="text-xs text-slate-400 ml-1">(${cat.unit})</span>
+                    </div>
+                    <div><input type="number" id="req-${key}" value="${data.req}" onchange="updateTempCredit('${key}', 'req')" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none font-semibold"></div>
+                    <div><input type="number" id="passed-${key}" value="${data.passed}" onchange="updateTempCredit('${key}', 'passed')" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"></div>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        function updateTempCredit(key, type) {
+            if (!tempCreditData[key]) tempCreditData[key] = { req: 0, passed: 0 };
+            tempCreditData[key][type] = parseInt(document.getElementById(`${type}-${key}`).value) || 0;
+        }
+
+        function showToastNotification(text, isSuccess = true) {
+            const toast = document.getElementById('toast-notification');
+            const toastText = document.getElementById('toast-text');
+            const toastIcon = document.getElementById('toast-icon');
+
+            toastText.innerText = text;
+            if (isSuccess) {
+                toast.className = "fixed bottom-8 left-1/2 -translate-x-1/2 bg-emerald-600 text-white font-semibold px-6 py-3.5 rounded-2xl shadow-xl z-50 hidden items-center space-x-2 text-sm border border-emerald-500";
+                toastIcon.className = "fa-solid fa-circle-check text-base animate-bounce";
+            } else {
+                toast.className = "fixed bottom-8 left-1/2 -translate-x-1/2 bg-amber-600 text-white font-semibold px-6 py-3.5 rounded-2xl shadow-xl z-50 hidden items-center space-x-2 text-sm border border-amber-500";
+                toastIcon.className = "fa-solid fa-triangle-exclamation text-base animate-bounce";
+            }
+
+            toast.classList.remove('hidden', 'toast-hide');
+            toast.classList.add('flex', 'toast-show');
+            
+            setTimeout(() => {
+                toast.classList.remove('toast-show');
+                toast.classList.add('toast-hide');
+                setTimeout(() => {
+                    toast.classList.remove('flex');
+                    toast.classList.add('hidden');
+                }, 400);
+            }, 2500);
+        }
+
+        function saveCreditsData() {
+            creditData = JSON.parse(JSON.stringify(tempCreditData));
+            localStorage.setItem('course_assistant_credits', JSON.stringify(creditData));
+            calculateAllMetrics();
+            showToastNotification("設定已成功儲存，儀表板已同步更新！", true);
+        }
+
+        function calculateAllMetrics() {
+            const t = THEME_STYLES[currentTheme] || THEME_STYLES.indigo;
+            let totalThreshold = 0, totalPassed = 0, totalPlannedCredits = 0;
+            let plannedByCategory = { major1: 0, major2: 0, general: 0, chinese: 0, english: 0, elective: 0, sports: 0 };
+            
+            courseList.forEach(c => {
+                if (c.cat === 'sports') plannedByCategory[c.cat] += c.slots ? c.slots.length : 1;
+                else plannedByCategory[c.cat] += parseInt(c.credit) || 0;
+            });
+
+            Object.keys(CATEGORIES).forEach(key => {
+                if (key !== 'sports') {
+                    totalThreshold += creditData[key].req;
+                    totalPassed += creditData[key].passed;
+                    totalPlannedCredits += plannedByCategory[key];
+                }
+            });
+
+            document.getElementById('card-total-threshold').innerHTML = `${totalThreshold} <span class="text-sm font-normal text-slate-400">學分</span>`;
+            document.getElementById('card-current-passed').innerHTML = `${totalPassed} <span class="text-sm font-normal text-slate-400">學分</span>`;
+            document.getElementById('card-after-planned').innerHTML = `還差 ${Math.max(0, totalThreshold - totalPassed - totalPlannedCredits)} <span class="text-sm font-normal text-slate-400">學分</span>`;
+
+            const progressContainer = document.getElementById('progress-container');
+            progressContainer.innerHTML = '';
+            Object.keys(CATEGORIES).forEach(key => {
+                const cat = CATEGORIES[key], req = creditData[key].req, passed = creditData[key].passed, planned = plannedByCategory[key];
+                const passedPercent = Math.min(100, (passed / (req || 1)) * 100), plannedPercent = Math.min(100 - passedPercent, (planned / (req || 1)) * 100);
+                const remaining = req - passed - planned;
+
+                const block = document.createElement('div');
+                block.className = "space-y-2";
+                block.innerHTML = `
+                    <div class="flex justify-between text-xs font-medium">
+                        <span class="text-slate-700 font-bold">${cat.name}</span>
+                        <span class="text-slate-500">已通過: ${passed} | 規劃中: +${planned} / 門檻: ${req} ${cat.unit} (<span class="font-semibold ${t.text}">${remaining > 0 ? `還差 ${remaining} ${cat.unit}` : '已規劃達標 ✨'}</span>)</span>
+                    </div>
+                    <div class="w-full bg-slate-100 h-3 rounded-full overflow-hidden flex">
+                        <div class="bg-emerald-500 h-full transition-all" style="width: ${passedPercent}%"></div>
+                        <div class="${t.bg} h-full transition-all" style="width: ${plannedPercent}%"></div>
+                    </div>
+                `;
+                progressContainer.appendChild(block);
+            });
+        }
+
+        function getCourseNameById(id) {
+            let matched = courseList.find(c => c.id == id);
+            return matched ? matched.name : "未知課程";
+        }
+
+        function prepareModalOptions() {
+            const prereqSelect = document.getElementById('modal-course-prereq');
+            const currentId = document.getElementById('modal-course-id').value;
+            prereqSelect.innerHTML = '<option value="">無先修限制 (不限擋修)</option>';
+            courseList.forEach(c => {
+                if(c.id != currentId) {
+                    prereqSelect.innerHTML += `<option value="${c.id}">${c.name} (${CATEGORIES[c.cat].name})</option>`;
+                }
+            });
+
+            const sems = getSemestersSequence();
+            const preferredSemSelect = document.getElementById('modal-course-preferred-sem');
+            preferredSemSelect.innerHTML = '<option value="">不限學期 (自動尋找最合適學期)</option>';
+            sems.forEach(sem => {
+                preferredSemSelect.innerHTML += `<option value="${sem.id}">${sem.label}</option>`;
+            });
+        }
+
+        function openAddCourseModal() {
+            document.getElementById('modal-error-block').classList.add('hidden');
+            document.getElementById('modal-course-id').value = '';
+            document.getElementById('modal-course-name').value = '';
+            document.getElementById('modal-course-cat').value = 'major1';
+            document.getElementById('modal-course-credit').value = '3';
+            document.getElementById('modal-course-credit').disabled = false;
+            document.getElementById('modal-credit-label').innerText = "學分數";
+            document.getElementById('modal-course-sem-rule').value = 'both';
+            document.getElementById('modal-course-priority').value = 'default';
+            
+            document.getElementById('modal-title').innerText = "新增計畫修課";
+            document.getElementById('modal-icon').className = "fa-solid fa-square-plus text-indigo-600 mr-2 theme-text";
+            document.getElementById('modal-submit-btn').innerText = "確認加入清單";
+
+            selectedSlotsCache = [];
+            updateSlotsPreviewText();
+            prepareModalOptions();
+
+            document.getElementById('add-course-modal').classList.add('modal-active');
+            applyThemeColors();
+        }
+
+        function openEditCourseModal(id) {
+            document.getElementById('modal-error-block').classList.add('hidden');
+            const target = courseList.find(c => c.id == id);
+            if (!target) return;
+
+            document.getElementById('modal-course-id').value = target.id;
+            document.getElementById('modal-course-name').value = target.name;
+            document.getElementById('modal-course-cat').value = target.cat;
+            document.getElementById('modal-course-credit').value = target.credit;
+            document.getElementById('modal-course-sem-rule').value = target.semRule;
+            document.getElementById('modal-course-priority').value = target.priority || 'default';
+            
+            document.getElementById('modal-title').innerText = "編輯課程規劃配置";
+            document.getElementById('modal-icon').className = "fa-solid fa-pen-to-square text-indigo-600 mr-2 theme-text";
+            document.getElementById('modal-submit-btn').innerText = "儲存修改";
+
+            handleModalCategoryChange();
+            prepareModalOptions();
+            
+            document.getElementById('modal-course-prereq').value = target.prereqId || '';
+            document.getElementById('modal-course-preferred-sem').value = target.preferredSemId || '';
+
+            selectedSlotsCache = JSON.parse(JSON.stringify(target.slots || []));
+            updateSlotsPreviewText();
+
+            document.getElementById('add-course-modal').classList.add('modal-active');
+            applyThemeColors();
+        }
+
+        function closeAddCourseModal() {
+            document.getElementById('add-course-modal').classList.remove('modal-active');
+        }
+
+        function handleModalCategoryChange() {
+            const cat = document.getElementById('modal-course-cat').value;
+            const creditInput = document.getElementById('modal-course-credit');
+            if (cat === 'sports') {
+                creditInput.value = 0; creditInput.disabled = true;
+                document.getElementById('modal-credit-label').innerText = "學分數 (體育強制為0)";
+            } else {
+                creditInput.disabled = false; document.getElementById('modal-credit-label').innerText = "學分數";
+                if (creditInput.value == 0) creditInput.value = 3;
+            }
+        }
+
+        function openSelectorGridModal() {
+            const tbody = document.getElementById('selector-grid-body');
+            tbody.innerHTML = '';
+            const t = THEME_STYLES[currentTheme] || THEME_STYLES.indigo;
+
+            for (let p = 1; p <= 10; p++) {
+                const tr = document.createElement('tr');
+                tr.className = "border-b border-slate-200 h-12";
+                let rowHtml = `<td class="bg-slate-50 font-bold text-slate-600 border border-slate-200 p-1 text-xs">第 ${p} 節</td>`;
+                
+                for (let d = 1; d <= 5; d++) {
+                    const isSelected = selectedSlotsCache.some(s => s.day === d && s.period === p);
+                    const activeClass = isSelected ? `${t.bg} text-white font-bold` : 'bg-white hover:bg-indigo-50 text-slate-400';
+                    const activeText = isSelected ? `<i class="fa-solid fa-check-to-slot mr-1"></i>已選` : '空堂';
+                    
+                    rowHtml += `
+                        <td id="cell-select-${d}-${p}" onclick="toggleSlotSelect(${d}, ${p})" class="p-1 border border-slate-200 align-middle transition-all cursor-pointer ${activeClass}">
+                            ${activeText}
+                        </td>
+                    `;
+                }
+                tr.innerHTML = rowHtml;
+                tbody.appendChild(tr);
+            }
+            document.getElementById('selector-grid-modal').classList.add('modal-active');
+        }
+
+        function toggleSlotSelect(day, period) {
+            const cell = document.getElementById(`cell-select-${day}-${period}`);
+            const idx = selectedSlotsCache.findIndex(s => s.day === day && s.period === period);
+            const t = THEME_STYLES[currentTheme] || THEME_STYLES.indigo;
+            
+            if (idx > -1) {
+                selectedSlotsCache.splice(idx, 1);
+                cell.className = "p-1 border border-slate-200 align-middle transition-all cursor-pointer bg-white hover:bg-indigo-50 text-slate-400";
+                cell.innerText = "空堂";
+            } else {
+                selectedSlotsCache.push({ day, period });
+                cell.className = `p-1 border border-slate-200 align-middle transition-all cursor-pointer ${t.bg} text-white font-bold`;
+                cell.innerHTML = `<i class="fa-solid fa-check-to-slot mr-1"></i>已選`;
+            }
+            updateSlotsPreviewText();
+        }
+
+        function closeSelectorGridModal() {
+            document.getElementById('selector-grid-modal').classList.remove('modal-active');
+        }
+
+        function updateSlotsPreviewText() {
+            const preview = document.getElementById('modal-slots-preview');
+            const t = THEME_STYLES[currentTheme] || THEME_STYLES.indigo;
+            if (selectedSlotsCache.length === 0) {
+                preview.innerText = "尚未選擇時段";
+                preview.className = "text-xs text-rose-500 font-medium font-mono truncate flex-1";
+            } else {
+                selectedSlotsCache.sort((a,b) => a.day !== b.day ? a.day - b.day : a.period - b.period);
+                const txt = selectedSlotsCache.map(s => {
+                    return `週${['','一','二','三','四','五'][s.day]}${s.period}`;
+                }).join(', ');
+                preview.innerText = txt;
+                preview.className = `text-xs ${t.pureText} font-bold font-mono truncate flex-1`;
+            }
+        }
+
+        function submitAddCourse() {
+            const idVal = document.getElementById('modal-course-id').value;
+            const name = document.getElementById('modal-course-name').value.trim();
+            const cat = document.getElementById('modal-course-cat').value;
+            const credit = parseInt(document.getElementById('modal-course-credit').value) || 0;
+            const semRule = document.getElementById('modal-course-sem-rule').value;
+            const priority = document.getElementById('modal-course-priority').value;
+            const prereqId = document.getElementById('modal-course-prereq').value;
+            const preferredSemId = document.getElementById('modal-course-preferred-sem').value;
+            const errorBlock = document.getElementById('modal-error-block');
+
+            if (!name || selectedSlotsCache.length === 0) {
+                errorBlock.classList.remove('hidden');
+                errorBlock.scrollIntoView({ behavior: 'smooth' });
+                return;
+            }
+            errorBlock.classList.add('hidden');
+
+            if (idVal) {
+                courseList = courseList.map(c => {
+                    if (c.id == idVal) {
+                        return { id: Number(idVal), name, cat, credit: cat === 'sports' ? 0 : credit, semRule, slots: [...selectedSlotsCache], priority, prereqId, preferredSemId };
+                    }
+                    return c;
+                });
+            } else {
+                courseList.push({ id: Date.now(), name, cat, credit: cat === 'sports' ? 0 : credit, semRule, slots: [...selectedSlotsCache], priority, prereqId, preferredSemId });
+            }
+
+            localStorage.setItem('course_assistant_courses', JSON.stringify(courseList));
+            renderCourseTable();
+            calculateAllMetrics();
+            closeAddCourseModal();
+            runAutoSchedule(); 
+        }
+
+        function deleteCourse(id) {
+            courseList = courseList.filter(c => c.id !== id);
+            localStorage.setItem('course_assistant_courses', JSON.stringify(courseList));
+            renderCourseTable();
+            calculateAllMetrics();
+            runAutoSchedule();
+        }
+
+        function renderCourseTable() {
+            const tbody = document.getElementById('course-table-body');
+            tbody.innerHTML = '';
+            if (courseList.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-400 italic">目前清單空空如也，點擊左上角新增預計修課吧！</td></tr>`;
+                return;
+            }
+
+            const sems = getSemestersSequence();
+            courseList.forEach(c => {
+                const catInfo = CATEGORIES[c.cat];
+                let prioText = c.priority && c.priority !== "default" ? `<span class="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full font-bold">手動: ${c.priority}</span>` : "預設";
+                let prereqText = c.prereqId ? `<span class="text-rose-600 font-semibold bg-rose-50 border border-rose-100 rounded px-1.5 py-0.5 text-xs inline-flex items-center"><i class="fa-solid fa-lock mr-1"></i>先修: ${getCourseNameById(c.prereqId)}</span>` : "無先修限制";
+                let prefSemLabel = c.preferredSemId && sems.find(s => s.id == c.preferredSemId) ? sems.find(s => s.id == c.preferredSemId).label : "不限";
+                
+                let timeSlotsDisplay = c.slots && c.slots.length > 0 ? c.slots.map(s => `週${['','一','二','三','四','五'][s.day]}第${s.period}節`).join(', ') : '未排定';
+                
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50 border-b border-slate-100 transition-colors";
+                tr.innerHTML = `
+                    <td class="p-4"><span class="px-2.5 py-1 text-xs font-semibold rounded-md ${catInfo.color} text-white whitespace-nowrap">${catInfo.name}</span></td>
+                    <td class="p-4 font-bold text-slate-900">${c.name}</td>
+                    <td class="p-4 text-xs font-medium text-slate-600">${prioText}</td>
+                    <td class="p-4">
+                        <div class="text-xs font-semibold mb-1">${c.cat === 'sports' ? '體育 (不計學分)' : c.credit + ' 學分'}</div>
+                        <div class="text-[10px] text-slate-500">${c.semRule === 'both' ? '全年皆可' : (c.semRule === '1' ? '僅上學期' : '僅下學期')}</div>
+                        <div class="text-[10px] text-amber-600 mt-1">期望: <span class="font-bold">${prefSemLabel}</span></div>
+                    </td>
+                    <td class="p-4">${prereqText}</td>
+                    <td class="p-4 text-slate-500 font-mono text-xs max-w-xs truncate" title="${timeSlotsDisplay}">${timeSlotsDisplay}</td>
+                    <td class="p-4 text-center space-x-3 whitespace-nowrap">
+                        <button onclick="openEditCourseModal(${c.id})" class="text-indigo-500 hover:text-indigo-700 transition-colors cursor-pointer" title="編輯課程資訊與時段">
+                            <i class="fa-solid fa-pen-to-square"></i>
+                        </button>
+                        <button onclick="deleteCourse(${c.id})" class="text-rose-500 hover:text-rose-700 transition-colors cursor-pointer" title="刪除課程">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function runAutoScheduleAndRedirect() {
+            runAutoSchedule();
+            if (failedCoursesList.length > 0) {
+                showToastNotification(`修課計畫已生成，但有 ${failedCoursesList.length} 門課程衝突未排入，已為您導向課表。`, false);
+            } else {
+                showToastNotification("恭喜！修課計畫已成功智慧生成，課表已同步更新！", true);
+            }
+            switchTab('timetable');
+        }
+
+        function runAutoSchedule() {
+            const semesters = getSemestersSequence();
+            let occupied = {}; scheduleResult = {};
+            semesters.forEach(sem => {
+                occupied[sem.id] = {};
+                for (let d = 1; d <= 5; d++) occupied[sem.id][d] = {};
+                scheduleResult[sem.id] = [];
+            });
+
+            scheduleConflicts = []; failedCoursesList = [];
+            const defaultCategoryWeight = { major1: 1, major2: 2, chinese: 3, english: 3, general: 4, elective: 5, sports: 6 };
+            function getEffectivePriority(course) {
+                return course.priority && course.priority !== 'default' ? parseInt(course.priority) : (defaultCategoryWeight[course.cat] || 5);
+            }
+
+            let unscheduled = [...courseList], scheduledIds = new Set(), failedIds = new Set(), scheduledSemesterMap = {}; 
+            let loopSafetyCounter = 0, maxAllowedLoops = courseList.length * 2;
+
+            while (unscheduled.length > 0 && loopSafetyCounter < maxAllowedLoops) {
+                loopSafetyCounter++;
+                let readyCourses = [], waitingCourses = [];
+
+                unscheduled.forEach(course => {
+                    let prereqId = course.prereqId;
+                    if (!prereqId || prereqId === "") readyCourses.push(course);
+                    else {
+                        if (!courseList.some(c => c.id == prereqId) || scheduledIds.has(Number(prereqId))) readyCourses.push(course); 
+                        else if (failedIds.has(Number(prereqId))) {
+                            failedIds.add(course.id); failedCoursesList.push(course);
+                            scheduleConflicts.push(`【擋修未過】${course.name} 的先修科目【${getCourseNameById(prereqId)}】排課失敗，致本學科亦無法排定。`);
+                        } else waitingCourses.push(course); 
+                    }
+                });
+
+                if (readyCourses.length === 0 && waitingCourses.length > 0) {
+                    waitingCourses.forEach(c => {
+                        scheduleConflicts.push(`【擋修循環】${c.name} 存在循環先修限制或互擋，無法排課！`);
+                        failedIds.add(c.id); failedCoursesList.push(c);
+                    });
+                    break;
+                }
+                if (readyCourses.length === 0) break;
+
+                readyCourses.sort((a, b) => getEffectivePriority(a) !== getEffectivePriority(b) ? getEffectivePriority(a) - getEffectivePriority(b) : a.id - b.id);
+                let course = readyCourses[0], scheduledSuccess = false;
+                let minSemester = (course.prereqId && scheduledSemesterMap[Number(course.prereqId)]) ? scheduledSemesterMap[Number(course.prereqId)] + 1 : 1;
+
+                let tryOrder = [], preferredSemIdNum = course.preferredSemId ? Number(course.preferredSemId) : null;
+                if (preferredSemIdNum && preferredSemIdNum >= minSemester && semesters.find(s => s.id === preferredSemIdNum)) {
+                    tryOrder.push(semesters.find(s => s.id === preferredSemIdNum));
+                }
+                semesters.forEach(s => { if (s.id >= minSemester && s.id !== preferredSemIdNum) tryOrder.push(s); });
+
+                for (let sem of tryOrder) {
+                    if (course.semRule === '1' && !sem.isOdd) continue; 
+                    if (course.semRule === '2' && sem.isOdd) continue;  
+
+                    let hasConflict = false;
+                    for (let s of course.slots) {
+                        if (occupied[sem.id][s.day][s.period]) { hasConflict = true; break; }
+                    }
+
+                    if (!hasConflict) {
+                        course.slots.forEach(s => { occupied[sem.id][s.day][s.period] = course.name; });
+                        scheduleResult[sem.id].push({ ...course, actualSemId: sem.id });
+                        scheduledSemesterMap[course.id] = sem.id; scheduledIds.add(course.id);
+                        scheduledSuccess = true; break;
+                    }
+                }
+
+                if (!scheduledSuccess) {
+                    failedIds.add(course.id); failedCoursesList.push(course);
+                    scheduleConflicts.push(`【無法分派】${course.name} 找不到合適的開課學期${course.prereqId ? ` (且須大於先修【${getCourseNameById(course.prereqId)}】所在的第 ${scheduledSemesterMap[Number(course.prereqId)]} 個學期)` : ''}，或所有時段皆與高優先權課程衝突。`);
+                }
+                unscheduled = unscheduled.filter(u => u.id !== course.id);
+            }
+
+            const alertDiv = document.getElementById('conflict-alert'), listUl = document.getElementById('conflict-list');
+            listUl.innerHTML = '';
+            if (scheduleConflicts.length > 0) {
+                alertDiv.classList.remove('hidden');
+                scheduleConflicts.forEach(msg => { const li = document.createElement('li'); li.innerText = msg; listUl.appendChild(li); });
+            } else alertDiv.classList.add('hidden');
+
+            if (!document.getElementById('tab-timetable').classList.contains('hidden')) { renderSemesterCards(); renderWeeklyGrid(); }
+        }
+
+        function renderSemesterCards() {
+            const container = document.getElementById('semester-cards-container');
+            container.innerHTML = '';
+            const sems = getSemestersSequence();
+            const t = THEME_STYLES[currentTheme] || THEME_STYLES.indigo;
+
+            sems.forEach(sem => {
+                const list = scheduleResult[sem.id] || [];
+                let listHtml = '', totalCredits = 0;
+                
+                if (list.length === 0) listHtml = `<p class="text-xs text-slate-400 italic">本學期尚無排定課程</p>`;
+                else {
+                    list.forEach(c => {
+                        totalCredits += parseInt(c.credit) || 0;
+                        let warningHtml = c.preferredSemId && Number(c.preferredSemId) !== sem.id ? `<div class="text-[10px] text-amber-600 font-semibold bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-1.5 flex items-center gap-0.5"><i class="fa-solid fa-triangle-exclamation mr-0.5 text-amber-500"></i> 未達成期望 (期望: ${sems.find(s => s.id == c.preferredSemId) ? sems.find(s => s.id == c.preferredSemId).label : '原期望學期'})</div>` : '';
+                        listHtml += `
+                            <div class="flex flex-col text-xs bg-slate-50 border border-slate-200 p-2.5 rounded-lg space-y-1">
+                                <div class="flex items-center justify-between">
+                                    <span class="font-bold text-slate-800 truncate max-w-[120px]" title="${c.name}">${c.name}</span>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded ${CATEGORIES[c.cat].color} text-white shrink-0">${CATEGORIES[c.cat].name.substring(0,2)}</span>
+                                </div>
+                                <div class="text-[10px] text-slate-400 font-mono flex justify-between"><span>${c.slots.map(s => `週${['','一','二','三','四','五'][s.day]}${s.period}`).join('/')}</span><span>${c.credit}學分</span></div>
+                                ${warningHtml}
+                            </div>
+                        `;
+                    });
+                }
+
+                const card = document.createElement('div');
+                card.className = "bg-white p-4 rounded-xl shadow-xs border border-slate-200 space-y-3 flex flex-col justify-between";
+                card.innerHTML = `<div><div class="border-b border-slate-100 pb-2 flex justify-between items-center"><h4 class="font-bold text-sm text-slate-800">${sem.label}</h4><span class="text-xs ${t.text} font-semibold ${t.lightBg} px-2 py-0.5 rounded-full">${totalCredits} 學分</span></div><div class="space-y-2 max-h-48 overflow-y-auto no-scrollbar">${listHtml}</div></div>`;
+                container.appendChild(card);
+            });
+
+            if (failedCoursesList.length > 0) {
+                let failedHtml = '';
+                failedCoursesList.forEach(c => {
+                    failedHtml += `
+                        <div class="flex flex-col text-xs bg-rose-50 border border-rose-200 p-2 rounded-lg space-y-1">
+                            <div class="flex items-center justify-between"><span class="font-bold text-rose-800 truncate max-w-[120px]" title="${c.name}">${c.name}</span><span class="text-[10px] px-1.5 py-0.5 rounded bg-rose-600 text-white shrink-0">${CATEGORIES[c.cat].name.substring(0,2)}</span></div>
+                            <div class="text-[10px] text-rose-500 font-semibold">排課限制未媒合成功</div>
+                        </div>
+                    `;
+                });
+                const failedCard = document.createElement('div');
+                failedCard.className = "bg-rose-50/30 p-4 rounded-xl shadow-xs border-2 border-dashed border-rose-300 space-y-3 flex flex-col justify-between";
+                failedCard.innerHTML = `<div><div class="border-b border-rose-200 pb-2 flex justify-between items-center"><h4 class="font-bold text-sm text-rose-700 flex items-center gap-1"><i class="fa-solid fa-triangle-exclamation text-rose-500 animate-pulse"></i> 無法排入的課程</h4><span class="text-xs text-rose-700 font-bold bg-rose-100 px-2 py-0.5 rounded-full">${failedCoursesList.length} 門課程</span></div><div class="space-y-2 max-h-48 overflow-y-auto no-scrollbar">${failedHtml}</div><div class="text-[11px] text-rose-700 leading-relaxed bg-white/75 p-3 rounded-lg border border-rose-200"><div class="font-bold mb-1"><i class="fa-solid fa-lightbulb"></i> 系統智慧建議：</div>建議您點擊左側欄頂部<span class="font-bold text-indigo-700">齒輪設定</span>來<span class="font-bold text-indigo-700">延長畢業年級</span>，或調整通識與選修科目的時段以順利排課。</div></div>`;
+                container.appendChild(failedCard);
+            }
+        }
+
+        function renderWeeklyGrid() {
+            const currentSem = document.getElementById('timetable-semester-select').value;
+            const tbody = document.getElementById('weekly-grid-body');
+            tbody.innerHTML = '';
+
+            let gridMap = {};
+            for (let p = 1; p <= 10; p++) gridMap[p] = {};
+            if (scheduleResult[currentSem]) {
+                scheduleResult[currentSem].forEach(c => { if (c.slots) c.slots.forEach(s => { gridMap[s.period][s.day] = c; }); });
+            }
+
+            for (let p = 1; p <= 10; p++) {
+                const tr = document.createElement('tr');
+                tr.className = "border-b border-slate-200 h-16";
+                let rowHtml = `<td class="bg-slate-50 font-bold text-slate-600 border border-slate-200 p-2 text-xs">第 ${p} 節</td>`;
+                
+                for (let d = 1; d <= 5; d++) {
+                    const course = gridMap[p][d];
+                    if (course) {
+                        rowHtml += `
+                            <td class="p-1 border border-slate-200 align-middle">
+                                <div class="${CATEGORIES[course.cat].color} text-white p-2 rounded-xl shadow-xs text-left h-full flex flex-col justify-between">
+                                    <span class="font-bold tracking-wide text-xs leading-tight truncate block w-full" title="${course.name}">${course.name}</span>
+                                    <div class="flex justify-between items-center mt-0.5 text-[9px] opacity-90"><span>${CATEGORIES[course.cat].name}</span><span class="bg-black/20 px-1 rounded">${course.cat === 'sports' ? '體育' : course.credit + '學分'}</span></div>
+                                </div>
+                            </td>
+                        `;
+                    } else rowHtml += `<td class="p-1 border border-slate-200 text-slate-300 italic align-middle bg-white hover:bg-slate-50/50 transition-colors">空堂</td>`;
+                }
+                tr.innerHTML = rowHtml; tbody.appendChild(tr);
+            }
+        }
+    </script>
+</body>
+</html>
