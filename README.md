@@ -21,7 +21,8 @@
 
 | 檔案 | 說明 |
 |------|------|
-| [`index.html`](./index.html) | 當前主版本 |
+| [`index.html`](./index.html) | 當前主版本（v2.8.7） |
+| [`v2.8.6-warning-redesign.html`](./v2.8.6-warning-redesign.html) | v2.8.6：警示重構 |
 | [`v2.6-original.html`](./v2.6-original.html) | 最初 2026-07-13 上傳的版本（基本 CRUD + 自動排課） |
 
 ## 授權
